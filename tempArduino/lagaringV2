@@ -1,0 +1,227 @@
+#include <OneWire.h>
+#include <DallasTemperature.h>
+
+
+//#include <Wire.h>
+//#include <LiquidCrystal_I2C.h>
+
+//Added ability to change temp when freezer is running or in safemode 
+
+
+//LiquidCrystal_I2C lcd(0x27, 2, 1, 0, 4, 5, 6, 7, 3, POSITIVE);  
+
+// Data wire is plugged into port 2 on the Arduino
+#define ONE_WIRE_BUS 7  //Temp Control is on digital port 7
+#define FREEZER  2        //Freezer is on digital port 2
+#define HEATER  3        //Heater is on digital port 2
+#define ON     0        //Start the Realy
+#define OFF    1        //Stop the Realy
+
+
+// Setup a oneWire instance to communicate with any OneWire devices (not just Maxim/Dallas temperature ICs)
+OneWire oneWire(ONE_WIRE_BUS);
+// Pass our oneWire reference to Dallas Temperature. 
+DallasTemperature sensors(&oneWire);
+
+float swingup = 4;
+float swingdown = 6;
+float temp = 46;           //Set Temperature
+boolean freezer = false;   //Set freezer to not running
+boolean heater  = false;   //Set heater to not running
+boolean safe = true;       //break out of start safe cycle
+boolean lagaring = true;   // start lagering
+
+
+  
+void setup(void){
+  Serial.begin(9600);
+  pinMode(FREEZER, OUTPUT);
+  digitalWrite(FREEZER, OFF);
+  pinMode(HEATER, OUTPUT);
+  digitalWrite(HEATER, OFF);
+  sensors.begin();
+  for (int i=900;i>0;i--){
+      Serial.print(i);
+      Serial.println(" Start cycle safe");
+      Serial.println(currentTemp());
+      serialEvent();  
+      if(!safe){
+      break;
+      }
+  }
+  
+  //lcd.begin(14,2);         // initialize the lcd for 20 chars 4 lines, turn on backligh
+  //lcd.backlight();         // finish with backlight on  
+
+}
+
+
+float f(float c){
+  return c * 1.8 + 32.0;
+}
+
+
+void FreezerOn(void){
+  digitalWrite(FREEZER, ON);
+  freezer=true;
+  float tmp=0;
+  if(lagaring){
+    tmp=swingdown;
+  }
+  
+  else if(!lagaring){
+  tmp=swingdown/4;
+  }
+
+  while(currentTemp()>temp-tmp){
+  Serial.println("Freezer is runing:");
+  Serial.println(currentTemp());
+  serialEvent();
+  }
+ 
+  digitalWrite(FREEZER, OFF);
+  freezer=false;
+  for (int i=900;i>0;i--){
+    Serial.print(i);
+    Serial.println(" Short cycle safe");
+    Serial.println(currentTemp());
+    serialEvent();  
+  }
+}
+
+
+void HeaterOn(void){
+  digitalWrite(HEATER, ON);
+  heater=true;
+  while(currentTemp()<temp+(swingdown/5)){ //oreginal code did not add anything here to temp
+    Serial.println("Heater is runing:");
+    Serial.println(currentTemp());
+    serialEvent();
+  }
+  digitalWrite(HEATER, OFF);
+  heater=false;
+}
+  
+
+
+float currentTemp(void){
+  sensors.requestTemperatures();
+  delay(1000);
+  return f(sensors.getTempCByIndex(0));
+
+}
+
+
+
+
+
+void loop(void){ 
+  Serial.println(currentTemp());
+
+  float tmp=0;
+  
+  if(lagaring){
+    tmp=swingup;
+  }
+  
+  else if(!lagaring){
+    tmp=swingup/2;
+  }
+  
+  if(currentTemp()>temp+tmp){ //oreginal code added all swing to temp
+    FreezerOn();  
+  }
+  
+  if(!lagaring){
+    if(currentTemp()<temp-(swingdown/10)){ //oreginal code added all swing to temp
+      HeaterOn();
+    }
+  }
+  
+  if(lagaring){
+    if(currentTemp()<temp+(swingdown/5)){ //oreginal code added all swing to temp
+      HeaterOn();
+    }
+  }
+  
+}
+
+
+
+void serialEvent()
+{
+  while (Serial.available())
+  {
+    char cmd = (char)Serial.read();
+    float n=Serial.parseFloat();
+    //Serial.println(n); //debuging
+    if (cmd == '~')
+    { 
+      swingup=n;
+      Serial.print("New Swingup Temp: ");
+      Serial.println(swingup);
+      Serial.print("Set SwingDown Temp: ");
+      Serial.println(swingdown);
+      Serial.print("Set Temp: ");
+      Serial.println(temp);
+      delay(10000);
+    }
+    
+    if (cmd == '!')
+    { 
+      swingdown=n;
+      Serial.print("Set Swingup Temp: ");
+      Serial.println(swingup);
+      Serial.print("New SwingDown Temp: ");
+      Serial.println(swingdown);
+      Serial.print("Set Temp: ");
+      Serial.println(temp);
+      delay(10000);
+    }
+    
+    if (cmd == '@')
+    { 
+      temp=n;
+      Serial.print("Set Swingup Temp: ");
+      Serial.println(swingup);
+      Serial.print("Set Swingdown Temp: ");
+      Serial.println(swingdown);
+      Serial.print("New Set Temp: ");
+      Serial.println(temp);
+      delay(10000);
+    }
+        if (cmd == '#')
+    { 
+      
+      Serial.print("current swingup temp: ");
+      Serial.println(swingup);
+      Serial.print("current swingdown temp: ");
+      Serial.println(swingdown);
+      Serial.print("current set temp: ");
+      Serial.println(temp);
+      
+      if (!heater){
+      Serial.println("the heater is off");
+      }
+      
+      if (!freezer){
+      Serial.println("the freezer is off");
+      }
+      
+      if (lagaring){
+      Serial.println("lager activated");
+      }
+      
+      delay(10000);
+    }
+    if(cmd == '$'){
+    safe=!safe;
+    }
+    
+    if(cmd == '%'){
+    lagaring=(!lagaring);
+    }
+
+
+  }
+}
